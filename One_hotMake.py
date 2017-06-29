@@ -13,9 +13,11 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation
 from keras.layers import Embedding
 from keras.optimizers import RMSprop
+import math
+import sys
+import random
 
-
-np.set_printoptions(threshold=np.inf)
+#np.set_printoptions(threshold=np.inf)
 
 
 """
@@ -38,9 +40,10 @@ np.set_printoptions(threshold=np.inf)
 
 #RNNで学習させる
 #LSTM， ．
-def ModelLstm(onehot_vector,length):
+def ModelLstm(X,y,length,dictionary):
+    maxlen = 3
     model = Sequential()
-    model.add(LSTM(128, input_shape=(35, length))) #128batch_size
+    model.add(LSTM(128, input_shape=(3, length))) #128batch_size
     model.add(Dense(length))
     model.add(Activation('softmax'))
     optimizer = RMSprop(lr=0.01)
@@ -54,58 +57,122 @@ def ModelLstm(onehot_vector,length):
         preds = exp_preds / np.sum(exp_preds)
         probas = np.random.multinomial(1, preds, 1)
         return np.argmax(probas)
+
     for iteration in range(1, 60):
         print()
         print('-' * 50)
         print('Iteration', iteration)
-        #model.fit(X, y,
-        #          batch_size=128,
-        #          epochs=1)
+        model.fit(X, y,
+                  batch_size=128,
+                  epochs=1)
+        start_index = random.randint(0, len(dictionary) - maxlen - 1)
 
+        for diversity in [0.2, 0.5, 1.0, 1.2]:
+            print()
+            print('----- diversity:', diversity)
+
+            generated = ''
+            sentence = dictionary[start_index: start_index + maxlen]
+            generated += sentence
+            print('----- Generating with seed: "' + sentence + '"')
+            sys.stdout.write(generated)
+            #前から３つずつ取っている．
+            for i in range(400):
+                x = np.zeros((1, maxlen, length))
+                x[0] = x[0] + X[0,random.randint(0,1000)]
+                preds = model.predict(x, verbose=0)[0]
+                next_index = sample(preds, diversity)
+                #next_char = indices_char[next_index]
+
+                #generated += next_char
+                #sentence = sentence[1:] + next_char
+
+                sys.stdout.write(next_index)
+                sys.stdout.flush()
+            print()
 
 
 def MakeOnehot(texts,V,dictionary):
     print("-------------MakeOnehot-------------")
-    sent_vec = one_hot(texts, V, lower=False, split=" ")
-    # print(sent_vec)
+    f = open('text.txt', 'w')
+    f.write(str(texts.split(" ")))
+    f.close()
+
+    sent_vec = one_hot(texts, V, lower=False, split=' ',filters='')
+    print("sent_vec",len(sent_vec))
     oneHot = to_categorical(sent_vec)#onhotvectorの作成
-    #f = open('text.txt', 'w')
-    #f.write(str(oneHot[0]))
-    #f.close()
+
     vectorAndWordList = []
+    maxlen = 3
+    sentencelen = []
+
     #onehovectorと単語の辞書を作成する
     id = 0
-    maxlen = 0
-    print("oneHot",len(oneHot[0]))
-
+    lesslen = 20
+    print("oneHot",len(oneHot[:,0]))
+    """
     for numberSentence,sentence in enumerate(dictionary):
         for i,word in enumerate(sentence):
-            vectorAndWordList.append([word,oneHot[i+id]])
-            #print(vectorAndWord)
-            #wordHot.append(oneHot[i+id])
-        #if (maxlen < max(i,maxlen)):
-        if(maxlen < i+1):
-            #print(word)
-            #print(sentence)
-            maxlen = i + 1
+            WordList.append([word,oneHot[i+id]])
+        sentencelen.append(i+1)
+        if(lesslen > i+1):
+            lesslen = i + 1
         id = id + i + 1
-    print("vector",len(vectorAndWordList[0][1]))#34
+    print("vector",len(vectorAndWordList[0][1]))
 
-    #print(zero)
+    print(lesslen)
     if(len(vectorAndWordList[0][1]) != V):#修正
         V = len(vectorAndWordList[0][1])
-
-    wordHot = np.zeros((numberSentence+1, maxlen, V), dtype=np.bool)#wordHotする numbersentence がループが0からだから
-    nextWord = np.zeros((numberSentence+1, V), dtype=np.bool)#nextWordを代入する
-    vectorAndWordList = np.array(vectorAndWordList, dtype=object)
-    print("wordHot",len(wordHot[2,1]))
+    """
+    #全部の文を全て3-gram
+    x = []
+    y = []
     for numberSentence,sentence in enumerate(dictionary):
+        vectorAndWordList = []
+        nextVector = []
+        textlen = len(sentence)
+        sentencelen.append(textlen)
+        #for i,word in enumerate(sentence):
+        for l in range(0,textlen - maxlen,1):
+            vectorAndWordList.append(oneHot[l+id: l + id + maxlen])
+            nextVector.append(oneHot[l+id+maxlen])
+        id = id + textlen
+        #vectorAndWordList = np.array(vectorAndWordList, dtype=object)
+        if (len(vectorAndWordList[0][1]) != V):  # 修正
+            V = len(vectorAndWordList[0][1])
+        #print(len(vectorAndWordList),len(nextVector))
+        wordHot = np.zeros((len(vectorAndWordList), maxlen, V), dtype=np.bool)  # wordHotする numbersentence がループが0からだから
+        nextWord = np.zeros((len(vectorAndWordList), V), dtype=np.bool)  # nextWordを代入する
+        #print(len(vectorAndWordList[1]),len(wordHot[1]))
+        for i in range(0,textlen - maxlen,1):
+            wordHot[i] = wordHot[i] + vectorAndWordList[i]
+            nextWord[i] = nextWord[i] + nextVector[i]
+        nextWord = np.array(nextWord)
+        wordHot  = np.array(wordHot)
+        print(nextWord.shape)
+        print(wordHot.shape)
+        x.extend(wordHot)
+        y.extend(nextWord)
+
+    #print("wordHot",len(wordHot[2,1]))
+    #print(x)
+    x = np.array(x)
+    print(x.shape)
+    y = np.array(y)
+    print(y.shape)
+    #print(x)
+    #print(y)
+    #for numberSentence,sentence in enumerate(dictionary):
         #print(sentence)
-        for i,word in enumerate(sentence):
-            wordHot[numberSentence,i] = wordHot[numberSentence,i] + vectorAndWordList[i,1]
-            nextdHot[numberSentence, i] = wordHot[numberSentence, i] + vectorAndWordList[i, 1]
-    f = open('text.txt', 'w')
-    f.write(str(wordHot[1]))
+        #sentenceDatalen = math.floor(len(sentence)/4.0)
+        #TempData = np.zeros((sentenceDatalen, maxlen, V), dtype=np.bool)
+        #for i,word in enumerate(sentence):
+        #    for l in range(0,len(sentence) - maxlen):
+            #wordHot[sentenceDatalen,i:i+maxlen] = wordHot[numberSentence,i:i+maxlen] + vectorAndWordList[i,1]
+            #nextdHot[numberSentence, i] = wordHot[numberSentence, i] + vectorAndWordList[i, 1]
+
+    #f = open('text.txt', 'w')
+    #f.write(str(wordHot[1]))
 
 
     """
@@ -120,7 +187,7 @@ def MakeOnehot(texts,V,dictionary):
     #f.close()
 
 
-    return oneHot,V,vectorAndWordList
+    return x,V,y
     #onh_hot_dictionary = {}
     #for text_one,coupustext in zip(dictionary,coupurs):
 
@@ -129,30 +196,37 @@ def FileRead(dataDir):
     #データ読み込み
     texts = ""
     dictionary = []
-    mt = MeCab.Tagger("-Owakati")
-    for filename in glob.glob("./"+dataDir+"/NovelTile2??.txt"):
+    mt = MeCab.Tagger("-Oyomi")
+    for filename in glob.glob("./"+dataDir+"/NovelTile201.txt"):
         with open(filename, "r", encoding="utf-8") as f:
             for n, text in enumerate(f.readlines()):
                 #print(text)
                 text = text.replace("\u3000", "")
-                text = re.sub(re.compile("[!-/:-@[-`{-~]"), " ", text)
-                text = text + " " + "EOS"
+                text = re.sub(re.compile(u"[!-/:-@[-`{-~]☆◈◯≧≪♀♂▼★♨◈〃"), "", text)
+                text = text+"EOS"
                 textpase = mt.parse(text)#mecab
                 textpase = textpase.replace(" \n", "")
-                texts = texts + " " + textpase
-                textpase = textpase.split(" ")
+                textpase = textpase.replace("\n", "")
+                textpase = textpase.replace(" ", "")
+                textpase = list(textpase)
+                #print(textpase)
+                texts = texts+" ".join(textpase)+" "
                 dictionary.append(textpase)
-
+    #print(dictionary)
+    #print(texts)
+    #漢字と日本語をなくすことする
                 #print(textpase)
     #print(dictionary)
     #V = len(set(dictionary)) + 1
     #print(V)
     flattendictionary = [flatten for inner in dictionary for flatten in inner]
+    print("flattendictionary",len(flattendictionary))
     vocabrary=set(flattendictionary)
-    #print(vocabrary)
+    print(vocabrary)
     V = len(vocabrary) + 1
     print(V)
     #print(V)
+
     return texts,V,dictionary
 
 
@@ -166,8 +240,8 @@ def FileRead(dataDir):
 
 def main():
     texts,V,dictionary = FileRead("DATA")
-    oneHot,length,vectorAndWordList= MakeOnehot(texts,V,dictionary)
-    #ModelLstm(oneHot,length),
+    wordHot,length,nextWord= MakeOnehot(texts,V,dictionary)
+    ModelLstm(wordHot,nextWord,length,dictionary)
 
 if __name__ == '__main__':
     main()
